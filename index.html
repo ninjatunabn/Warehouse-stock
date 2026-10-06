@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Warehouse Stock Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky bar with tabs. Dashboard = summary strip, filterable stock table, history chart.
+   Daily count = month calendar beside the day's count sheet. Products = add / edit / archive (admin). */
+:root{
+  --bg:#F2F5F7; --surface:#FFFFFF; --surface-2:#F6F8F9; --ink:#14202B; --muted:#5A6A78; --line:#DCE3E8;
+  --accent:#0B6E6E; --accent-ink:#FFFFFF; --accent-soft:#DDF0EF;
+  --ok:#1E7B4F; --ok-soft:#DFF2E7; --warn:#995A00; --warn-soft:#FBEBCB; --crit:#B3261E; --crit-soft:#FADDDA;
+  --font:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1418; --surface:#162027; --surface-2:#1B2830; --ink:#E6EDF2; --muted:#93A4B1; --line:#27363F;
+    --accent:#4FC3C3; --accent-ink:#06262A; --accent-soft:#17383B;
+    --ok:#5CC48E; --ok-soft:#173326; --warn:#E5A94A; --warn-soft:#3A2D12; --crit:#F27B72; --crit-soft:#3C1B19;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1418; --surface:#162027; --surface-2:#1B2830; --ink:#E6EDF2; --muted:#93A4B1; --line:#27363F;
+  --accent:#4FC3C3; --accent-ink:#06262A; --accent-soft:#17383B;
+  --ok:#5CC48E; --ok-soft:#173326; --warn:#E5A94A; --warn-soft:#3A2D12; --crit:#F27B72; --crit-soft:#3C1B19;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--font)}
+h1,h2,h3,p{margin:0}
+[hidden]{display:none!important}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:16px}
+.muted{color:var(--muted)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* top bar */
+.top{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top,0px)}
+.top .wrap{padding-block:12px 0}
+.brand{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px}
+.brand h1{font-size:20px;font-weight:700;letter-spacing:-.01em}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;color:var(--muted);font-size:13px}
+.live{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12px}
+.live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.live.on{color:var(--ok)} .live.on::before{background:var(--ok)}
+.live.off{color:var(--crit)} .live.off::before{background:var(--crit)}
+.tabs{display:flex;gap:4px;margin-top:10px;overflow-x:auto}
+.tab{font:inherit;font-weight:600;color:var(--muted);background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px;cursor:pointer;white-space:nowrap}
+.tab[aria-current="page"]{color:var(--ink);border-bottom-color:var(--accent)}
+main{padding-block:16px 96px;display:flex;flex-direction:column;gap:16px}
+
+/* controls */
+.btn{font:inherit;font-weight:600;padding:8px 14px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.sm{padding:4px 10px;font-size:13px}
+.btn.danger{color:var(--crit)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.btn:focus-visible,.tab:focus-visible,.day:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,tr[data-action]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;min-width:0}
+textarea{width:100%;resize:vertical}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+
+/* panels */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;min-width:0}
+.panel-h{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.panel-h h2{font-size:15px;font-weight:700}
+.panel-b{padding:14px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.stat{background:var(--surface);padding:12px 14px;min-width:0}
+.stat .k{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font:500 26px/1.2 var(--mono);margin-top:2px}
+.stat .s{font-size:12px;color:var(--muted);margin-top:2px}
+.stat .v.warn{color:var(--warn)} .stat .v.crit{color:var(--crit)}
+
+/* tables */
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+th.num,td.num{text-align:right}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+td small,.sub{display:block;font:12px var(--font);color:var(--muted)}
+td.pname{font-weight:600;min-width:150px}
+tr[data-action]{cursor:pointer}
+tr.sel td{background:var(--surface-2)}
+.stale{color:var(--warn)}
+.delta.pos{color:var(--accent)} .delta.zero{color:var(--muted)}
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.low{background:var(--warn-soft);color:var(--warn)}
+.pill.out{background:var(--crit-soft);color:var(--crit)} .pill.none{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+.spark{display:block}
+.spark path{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.spark circle{fill:var(--accent)}
+
+/* filters */
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{font:inherit;font-size:13px;font-weight:600;padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.filters input[type=search]{width:min(240px,100%)}
+
+/* chart */
+.chart{width:100%;height:auto;display:block}
+.chart .grid{stroke:var(--line);stroke-width:1}
+.chart .ax{fill:var(--muted);font:11px var(--mono)}
+.chart .area{fill:var(--accent-soft)}
+.chart .ln{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round}
+.chart .pt{fill:var(--surface);stroke:var(--accent);stroke-width:2}
+.chart .pt.last{fill:var(--accent)}
+.chart .minl{stroke:var(--warn);stroke-width:1.5;stroke-dasharray:5 4}
+.chart .mint{fill:var(--warn);font:11px var(--mono)}
+
+/* daily count */
+.entry{display:grid;grid-template-columns:minmax(0,320px) minmax(0,1fr);gap:16px;align-items:start}
+.calnav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.calnav strong{font-size:15px}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.dow{font-size:11px;text-align:center;color:var(--muted);padding:2px 0;font-weight:600}
+.day{font:inherit;min-height:50px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);display:flex;flex-direction:column;justify-content:space-between;gap:2px;padding:4px 5px;text-align:left;cursor:pointer}
+.day.blank{visibility:hidden;pointer-events:none}
+.day[disabled]{opacity:.38;cursor:default}
+.day .dn{font-size:13px;font-weight:600}
+.day.today .dn{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.day.sel{outline:2px solid var(--accent);outline-offset:1px;background:var(--accent-soft)}
+.day .pg{font:10px var(--mono);color:var(--muted)}
+.day .bar{height:3px;border-radius:2px;background:var(--line);overflow:hidden}
+.day .bar i{display:block;height:100%;background:var(--warn)}
+.day.done .bar i{background:var(--ok)}
+.key{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;font-size:12px;color:var(--muted)}
+.key span::before{content:"";display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:6px;vertical-align:middle;background:var(--ok)}
+.key span.p::before{background:var(--warn)}
+.qty{width:116px;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.qty.dirty{border-color:var(--accent);background:var(--accent-soft)}
+.qty.bad{border-color:var(--crit);background:var(--crit-soft)}
+.qty[disabled]{opacity:.6}
+.savebar{position:sticky;bottom:env(safe-area-inset-bottom,0px);display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:10px 14px;background:var(--surface);border-top:1px solid var(--line);border-radius:0 0 8px 8px}
+.err{color:var(--crit);font-weight:600}
+.note{padding:10px 14px;border-radius:8px;background:var(--warn-soft);color:var(--warn);font-weight:500}
+.empty{padding:36px 16px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:10px}
+.empty h2{font-size:18px}
+.empty p{max-width:52ch;color:var(--muted)}
+.empty code{font-family:var(--mono);background:var(--surface-2);padding:1px 6px;border-radius:4px}
+
+/* login */
+.loginwrap{min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px 16px}
+.login{width:min(380px,100%);padding:24px;display:flex;flex-direction:column;gap:14px}
+.login h1{font-size:20px;font-weight:700;letter-spacing:-.01em}
+
+/* products */
+.addgrid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:end}
+.rowedit{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:8px}
+details summary{cursor:pointer;font-weight:600;color:var(--accent)}
+details .panel-b{padding:12px 0 0}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;font-weight:600;z-index:9;max-width:calc(100% - 32px)}
+
+@media (max-width:860px){.entry{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:620px){.addgrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.addgrid .full{grid-column:1/-1}.rowedit{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.rowedit label:first-child{grid-column:1/-1}}
+@media (prefers-reduced-motion:no-preference){.btn,.chip,.day{transition:background .12s,border-color .12s}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
+<script>
+(function(){
+"use strict";
+var $app=document.getElementById('app');
+var nf=new Intl.NumberFormat('en-US',{maximumFractionDigits:3});
+var cfg=window.STOCK_CONFIG||{};
+var sb=null;
+
+/* ---------- state ---------- */
+var S={
+  uid:null,me:null,isAdmin:false,canWrite:false,authChecked:false,authBusy:false,loginErr:'',
+  ready:false,live:false,err:'',loadErr:'',
+  tab:'dash',products:[],counts:{},ser:{},names:{},loadedFrom:'',today:'',date:'',month:null,
+  drafts:{},filter:'all',sel:null,onlyMissing:false,f:{},
+  saving:false,msg:'',confirm:null,editing:null,showArchived:false,busy:false
+};
+var channel=null,pollTimer=null;
+
+/* ---------- helpers ---------- */
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function pad(n){return String(n).padStart(2,'0')}
+function ymd(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+function pd(s){var a=s.split('-').map(Number);return new Date(a[0],a[1]-1,a[2])}
+function fmtD(s){return pd(s).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}
+function fmtLong(s){return pd(s).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}
+function fmtT(iso){try{return new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}catch(e){return ''}}
+function num(n){return nf.format(n)}
+function signed(n){return n===0?'0':(n<0?'−':'+')+nf.format(Math.abs(n))}
+function parseQty(s){var t=String(s).trim();if(t==='')return null;t=t.replace(',','.');if(!/^\d+(\.\d+)?$/.test(t))return NaN;var n=Number(t);return isFinite(n)?n:NaN}
+function byName(a,b){return String(a.name).localeCompare(String(b.name))}
+function active(){return S.products.filter(function(p){return p.active!==false}).sort(byName)}
+function archived(){return S.products.filter(function(p){return p.active===false}).sort(byName)}
+function toast(m){S.msg=m;render();clearTimeout(toast.t);toast.t=setTimeout(function(){S.msg='';render()},3200)}
+function nameOf(id){if(!id)return 'a teammate';if(id===S.uid)return 'You';return S.names[id]||'a teammate'}
+function configured(){return !!(cfg.SUPABASE_URL&&cfg.SUPABASE_ANON_KEY&&!/YOUR-/.test(cfg.SUPABASE_URL+cfg.SUPABASE_ANON_KEY))}
+function errText(e){
+  var c=e&&e.code,m=(e&&e.message)||'';
+  if(c==='42501'||/row-level security|permission denied/i.test(m))return 'You do not have permission to do this.';
+  if(c==='23505')return 'A product with this name already exists.';
+  if(c==='PGRST301'||/jwt/i.test(m))return 'Your session expired. Sign in again.';
+  if(/failed to fetch|network/i.test(m))return 'No connection. Check the internet and try again.';
+  return 'Something went wrong: '+(m||'unknown error');
+}
+function buildSeries(){
+  var ser={};
+  Object.keys(S.counts).sort().forEach(function(dt){
+    var c=S.counts[dt],q=c.qty||{};
+    Object.keys(q).forEach(function(pid){
+      if(typeof q[pid]==='number'){(ser[pid]=ser[pid]||[]).push({date:dt,qty:q[pid],at:(c.at||{})[pid],by:(c.by||{})[pid]})}
+    });
+  });
+  S.ser=ser;
+}
+function info(p){
+  var s=S.ser[p.id]||[],last=s[s.length-1],prev=s[s.length-2],status='none';
+  var min=Number(p.min)||0;
+  if(last){status=last.qty<=0?'out':(min>0&&last.qty<=min?'low':'ok')}
+  var tc=S.counts[S.today],today=!!(tc&&tc.qty&&typeof tc.qty[p.id]==='number');
+  return {p:p,s:s,last:last,prev:prev,status:status,today:today,min:min};
+}
+
+/* ---------- small graphics ---------- */
+function spark(vals){
+  if(vals.length<2)return '<span class="muted">–</span>';
+  var w=84,h=26,pd2=3,mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),r=(mx-mn)||1,d='',lx=0,ly=0;
+  vals.forEach(function(v,i){
+    var x=pd2+i*(w-2*pd2)/(vals.length-1),y=h-pd2-(v-mn)/r*(h-2*pd2);
+    d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1);lx=x;ly=y;
+  });
+  return '<svg class="spark" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" aria-hidden="true"><path d="'+d+'"/><circle cx="'+lx.toFixed(1)+'" cy="'+ly.toFixed(1)+'" r="2.6"/></svg>';
+}
+function niceMax(v){if(v<=0)return 1;var e=Math.pow(10,Math.floor(Math.log10(v))),m=v/e;return (m<=1?1:m<=2?2:m<=5?5:10)*e}
+function chart(it){
+  var s=it.s.slice(-30);
+  if(s.length<2)return '<p class="muted" style="padding:20px 0">A trend appears after two daily counts of this product.</p>';
+  var W=720,H=230,L=48,R=16,T=14,B=30,min=it.min;
+  var ymax=niceMax(Math.max(Math.max.apply(null,s.map(function(x){return x.qty})),min)*1.08);
+  var t0=pd(s[0].date).getTime(),t1=pd(s[s.length-1].date).getTime(),span=(t1-t0)||1;
+  function X(d){return L+(pd(d).getTime()-t0)/span*(W-L-R)}
+  function Y(v){return T+(1-v/ymax)*(H-T-B)}
+  var o='<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Stock history of '+esc(it.p.name)+'">';
+  [0,.5,1].forEach(function(f){
+    var v=ymax*f,y=Y(v);
+    o+='<line class="grid" x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'"/><text class="ax" x="'+(L-8)+'" y="'+(y+4)+'" text-anchor="end">'+num(v)+'</text>';
+  });
+  var line='',area='';
+  s.forEach(function(p,i){var x=X(p.date).toFixed(1),y=Y(p.qty).toFixed(1);line+=(i?'L':'M')+x+' '+y});
+  area=line+'L'+X(s[s.length-1].date).toFixed(1)+' '+Y(0)+'L'+X(s[0].date).toFixed(1)+' '+Y(0)+'Z';
+  if(min>0&&min<=ymax){var my=Y(min);o+='<line class="minl" x1="'+L+'" x2="'+(W-R)+'" y1="'+my+'" y2="'+my+'"/><text class="mint" x="'+(W-R)+'" y="'+(my-5)+'" text-anchor="end">min '+num(min)+'</text>'}
+  o+='<path class="area" d="'+area+'"/><path class="ln" d="'+line+'"/>';
+  s.forEach(function(p,i){
+    o+='<circle class="pt'+(i===s.length-1?' last':'')+'" cx="'+X(p.date).toFixed(1)+'" cy="'+Y(p.qty).toFixed(1)+'" r="'+(i===s.length-1?5:3.2)+'"><title>'+fmtD(p.date)+': '+num(p.qty)+'</title></circle>';
+  });
+  o+='<text class="ax" x="'+L+'" y="'+(H-8)+'" text-anchor="start">'+fmtD(s[0].date)+'</text><text class="ax" x="'+(W-R)+'" y="'+(H-8)+'" text-anchor="end">'+fmtD(s[s.length-1].date)+'</text></svg>';
+  return o;
+}
+
+/* ---------- data (Supabase) ---------- */
+function mapProduct(r){return {id:r.id,name:r.name,unit:r.unit||'',min:Number(r.min_level)||0,active:r.active!==false}}
+function applyRow(r){
+  var dt=r.count_date,pid=r.product_id;
+  var c=S.counts[dt]||(S.counts[dt]={date:dt,qty:{},by:{},at:{}});
+  c.qty[pid]=Number(r.qty);c.by[pid]=r.entered_by;c.at[pid]=r.updated_at;
+}
+async function loadProducts(){
+  var r=await sb.from('products').select('id,name,unit,min_level,active').order('name');
+  if(r.error)throw r.error;
+  S.products=r.data.map(mapProduct);
+}
+async function loadProfiles(){
+  var r=await sb.from('profiles').select('id,full_name,role');
+  if(r.error)throw r.error;
+  r.data.forEach(function(p){S.names[p.id]=p.full_name||'a teammate';if(p.id===S.uid){S.me=p;S.isAdmin=p.role==='admin'}});
+}
+async function fetchCounts(from,to){
+  var all=[],a=0,step=1000;
+  for(;;){
+    var q=sb.from('stock_counts').select('product_id,count_date,qty,entered_by,updated_at').gte('count_date',from);
+    if(to)q=q.lt('count_date',to);
+    q=q.order('count_date',{ascending:true}).order('product_id',{ascending:true}).range(a,a+step-1);
+    var r=await q;
+    if(r.error)throw r.error;
+    all=all.concat(r.data);
+    if(r.data.length<step)break;
+    a+=step;
+  }
+  return all;
+}
+async function fetchLatest(){
+  var r=await sb.from('latest_counts').select('product_id,count_date,qty,entered_by,updated_at');
+  if(r.error)throw r.error;
+  return r.data;
+}
+async function loadAll(){
+  var d=new Date();d.setDate(d.getDate()-60);
+  S.loadedFrom=ymd(d);
+  await loadProfiles();
+  await loadProducts();
+  var rows=await fetchCounts(S.loadedFrom,null),latest=await fetchLatest();
+  S.counts={};rows.forEach(applyRow);latest.forEach(applyRow);buildSeries();
+}
+async function refreshRecent(){
+  if(!S.uid||!S.ready)return;
+  try{
+    var d=new Date();d.setDate(d.getDate()-3);
+    var rows=await fetchCounts(ymd(d),null);
+    rows.forEach(applyRow);buildSeries();render();
+  }catch(e){}
+}
+async function ensureMonth(){
+  var need=ymd(new Date(S.month.y,S.month.m,1-35));
+  if(need>=S.loadedFrom)return;
+  try{
+    var rows=await fetchCounts(need,S.loadedFrom);
+    rows.forEach(applyRow);S.loadedFrom=need;buildSeries();render();
+  }catch(e){toast(errText(e))}
+}
+function subscribe(){
+  unsubscribe();
+  channel=sb.channel('stock-board')
+    .on('postgres_changes',{event:'*',schema:'public',table:'stock_counts'},function(p){
+      var r=p&&p.new;if(!r||!r.count_date)return;
+      applyRow(r);buildSeries();render();
+    })
+    .on('postgres_changes',{event:'*',schema:'public',table:'products'},function(){
+      loadProducts().then(render).catch(function(){});
+    })
+    .subscribe(function(status){S.live=(status==='SUBSCRIBED');render()});
+  pollTimer=setInterval(refreshRecent,60000);
+}
+function unsubscribe(){
+  if(channel){try{sb.removeChannel(channel)}catch(e){}channel=null}
+  clearInterval(pollTimer);pollTimer=null;S.live=false;
+}
+async function onSession(user){
+  if(S.uid===user.id&&(S.ready||S.loading))return;
+  S.uid=user.id;S.canWrite=true;S.ready=false;S.loading=true;S.loadErr='';render();
+  try{
+    await loadAll();
+    S.ready=true;subscribe();
+  }catch(e){S.loadErr=errText(e)}
+  S.loading=false;
+  render();
+}
+function teardown(){
+  unsubscribe();
+  S.uid=null;S.me=null;S.isAdmin=false;S.canWrite=false;S.ready=false;
+  S.products=[];S.counts={};S.ser={};S.drafts={};S.names={};S.tab='dash';S.f={};S.editing=null;
+}
+
+/* ---------- views ---------- */
+function emptyState(){
+  return '<div class="panel empty"><h2>No products yet</h2><p>Add the products that are kept in the warehouse. Accountants then enter the remaining quantity of each one every day.</p>'+
+    (S.isAdmin?'<button class="btn primary" data-action="tab" data-v="products">Add products</button>':'<p>Ask an administrator to add the product list.</p>')+'</div>';
+}
+
+function viewDash(){
+  var P=active();if(!P.length)return emptyState();
+  var rows=P.map(info),nToday=rows.filter(function(r){return r.today}).length;
+  var attn=rows.filter(function(r){return r.status==='low'||r.status==='out'}).length;
+  var latest=null;
+  Object.keys(S.counts).forEach(function(dt){var c=S.counts[dt],a=c.at||{};Object.keys(a).forEach(function(pid){if(!latest||a[pid]>latest.at)latest={at:a[pid],by:(c.by||{})[pid],date:dt}})});
+  var q=(S.f.search||'').trim().toLowerCase();
+  var list=rows.filter(function(r){
+    if(q&&String(r.p.name).toLowerCase().indexOf(q)<0)return false;
+    if(S.filter==='attention')return r.status==='low'||r.status==='out';
+    if(S.filter==='pending')return !r.today;
+    return true;
+  });
+  if(!S.sel||!rows.some(function(r){return r.p.id===S.sel}))S.sel=(rows.filter(function(r){return r.status==='low'||r.status==='out'})[0]||rows[0]).p.id;
+  var selIt=rows.filter(function(r){return r.p.id===S.sel})[0];
+
+  var h='<section class="stats" aria-label="Summary">'+
+   '<div class="stat"><div class="k">Products</div><div class="v">'+P.length+'</div><div class="s">in the warehouse</div></div>'+
+   '<div class="stat"><div class="k">Counted today</div><div class="v">'+nToday+'<span class="muted">/'+P.length+'</span></div><div class="s">'+(nToday===P.length?'Everything is counted':(P.length-nToday)+' still to count')+'</div></div>'+
+   '<div class="stat"><div class="k">Low or out</div><div class="v'+(attn?' warn':'')+'">'+attn+'</div><div class="s">'+(attn?'need a restock':'all above minimum')+'</div></div>'+
+   '<div class="stat"><div class="k">Last entry</div><div class="v">'+(latest?esc(fmtT(latest.at)||fmtD(latest.date)):'–')+'</div><div class="s">'+(latest?(latest.date===S.today?'today':fmtD(latest.date))+' by '+esc(nameOf(latest.by)):'no counts yet')+'</div></div>'+
+  '</section>';
+
+  h+='<section class="panel"><div class="panel-h"><h2>Stock on hand</h2><div class="filters">'+
+    [['all','All'],['attention','Low or out'],['pending','Not counted today']].map(function(f){return '<button class="chip" data-action="filter" data-v="'+f[0]+'" aria-pressed="'+(S.filter===f[0])+'">'+f[1]+'</button>'}).join('')+
+    '<input type="search" id="q-search" data-bind="search" placeholder="Search products" aria-label="Search products" value="'+esc(S.f.search||'')+'">'+
+    '<button class="btn sm" data-action="csv">Download CSV</button></div></div>'+
+    '<div class="tw"><table style="min-width:660px"><thead><tr><th>Product</th><th class="num">On hand</th><th class="num">Change</th><th>Trend</th><th class="num">Minimum</th><th>Status</th></tr></thead><tbody>';
+  if(!list.length)h+='<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">No products match this filter.</td></tr>';
+  list.forEach(function(r){
+    var p=r.p,l=r.last,when='';
+    if(l){when=l.date===S.today?('Counted today'+(l.at?' '+esc(fmtT(l.at)):'')):('<span class="stale">Last counted '+esc(fmtD(l.date))+'</span>')}
+    var d='<span class="muted">–</span>';
+    if(l&&r.prev){var dv=l.qty-r.prev.qty;d='<span class="delta '+(dv>0?'pos':dv===0?'zero':'')+'" title="since '+esc(fmtD(r.prev.date))+'">'+signed(dv)+'</span>'}
+    var pill=r.status==='none'?'<span class="pill none">No count yet</span>':'<span class="pill '+r.status+'">'+({ok:'OK',low:'Low',out:'Out'})[r.status]+'</span>';
+    h+='<tr data-action="select" data-pid="'+esc(p.id)+'" tabindex="0" class="'+(p.id===S.sel?'sel':'')+'">'+
+      '<td class="pname">'+esc(p.name)+(p.unit?'<small>'+esc(p.unit)+'</small>':'')+'</td>'+
+      '<td class="num">'+(l?num(l.qty):'–')+'<small style="font-family:var(--font)">'+when+'</small></td>'+
+      '<td class="num">'+d+'</td><td>'+spark(r.s.slice(-14).map(function(x){return x.qty}))+'</td>'+
+      '<td class="num">'+(r.min>0?num(r.min):'<span class="muted">–</span>')+'</td><td>'+pill+'</td></tr>';
+  });
+  h+='</tbody></table></div></section>';
+
+  var l2=selIt.last;
+  h+='<section class="panel"><div class="panel-h"><h2>'+esc(selIt.p.name)+' history</h2><div class="muted">'+(l2?'On hand <strong class="mono" style="color:var(--ink)">'+num(l2.qty)+'</strong> '+esc(selIt.p.unit||'')+' · counted '+esc(fmtD(l2.date)):'No counts yet')+'</div></div><div class="panel-b">'+chart(selIt)+'</div></section>';
+  return h;
+}
+
+function viewCal(P){
+  var m=S.month,first=new Date(m.y,m.m,1),lead=(first.getDay()+6)%7,days=new Date(m.y,m.m+1,0).getDate();
+  var now=pd(S.today),atMax=(m.y>now.getFullYear())||(m.y===now.getFullYear()&&m.m>=now.getMonth());
+  var title=first.toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  var h='<div class="calnav"><button class="btn sm" data-action="mprev" aria-label="Previous month">‹</button><strong>'+title+'</strong><button class="btn sm" data-action="mnext" aria-label="Next month"'+(atMax?' disabled':'')+'>›</button></div><div class="cal">';
+  ['Mo','Tu','We','Th','Fr','Sa','Su'].forEach(function(d){h+='<div class="dow">'+d+'</div>'});
+  for(var i=0;i<lead;i++)h+='<span class="day blank"></span>';
+  for(var d=1;d<=days;d++){
+    var ds=ymd(new Date(m.y,m.m,d)),c=S.counts[ds],n=0;
+    if(c&&c.qty)P.forEach(function(p){if(typeof c.qty[p.id]==='number')n++});
+    var fut=ds>S.today,done=P.length>0&&n>=P.length;
+    h+='<button class="day'+(ds===S.date?' sel':'')+(ds===S.today?' today':'')+(done?' done':'')+'" data-action="date" data-v="'+ds+'"'+(fut?' disabled':'')+' aria-label="'+esc(fmtLong(ds))+', '+n+' of '+P.length+' counted"'+(ds===S.date?' aria-current="date"':'')+'><span class="dn">'+d+'</span>'+
+      (fut?'<span></span>':'<span class="pg">'+(n?n+'/'+P.length:'–')+'</span><span class="bar"><i style="width:'+(P.length?Math.round(n/P.length*100):0)+'%"></i></span>')+'</button>';
+  }
+  h+='</div><div class="key"><span>All counted</span><span class="p">Partly counted</span></div>';
+  return h;
+}
+
+function viewEntry(){
+  var P=active();if(!P.length)return emptyState();
+  var date=S.date,day=S.counts[date]||{},dq=day.qty||{},dr=S.drafts[date]||{},dirty=0,bad=0,counted=0;
+  var out=[];
+  P.forEach(function(p){
+    var saved=typeof dq[p.id]==='number'?dq[p.id]:undefined;
+    if(saved!==undefined)counted++;
+    var raw=dr[p.id],val=raw!==undefined?raw:(saved!==undefined?String(saved):''),cls='qty',cur=saved;
+    if(raw!==undefined){var pv=parseQty(raw);if(Number.isNaN(pv)){bad++;cls+=' bad'}else if(pv!==null){cur=pv;if(pv!==saved){dirty++;cls+=' dirty'}}}
+    var s=S.ser[p.id]||[],prev=null;
+    for(var i=s.length-1;i>=0;i--){if(s[i].date<date){prev=s[i];break}}
+    out.push({p:p,saved:saved,val:val,cls:cls,cur:cur,prev:prev});
+  });
+  var list=S.onlyMissing?out.filter(function(r){return r.saved===undefined}):out;
+  var h='<div class="entry"><section class="panel"><div class="panel-b">'+viewCal(P)+'</div></section><section class="panel">'+
+    '<div class="panel-h"><div><h2>'+esc(fmtLong(date))+'</h2><div class="muted">'+counted+' of '+P.length+' products counted'+(date===S.today?' · today':'')+'</div></div>'+
+    '<label style="flex-direction:row;align-items:center;gap:8px;font-weight:500"><input type="checkbox" id="c-missing" data-action="missing"'+(S.onlyMissing?' checked':'')+'> Only products not counted</label></div>';
+  h+='<div class="tw"><table style="min-width:560px"><thead><tr><th>Product</th><th class="num">Previous count</th><th class="num">Remaining today</th><th class="num">Change</th><th>Entered by</th></tr></thead><tbody>';
+  if(!list.length)h+='<tr><td colspan="5" class="muted" style="text-align:center;padding:24px">Every product is counted for this day.</td></tr>';
+  list.forEach(function(r){
+    var p=r.p,ch='<span class="muted">–</span>';
+    if(r.cur!==undefined&&r.prev){var dv=r.cur-r.prev.qty;ch='<span class="delta '+(dv>0?'pos':dv===0?'zero':'')+'">'+signed(dv)+'</span>'}
+    var by=r.saved!==undefined?esc(nameOf((day.by||{})[p.id]))+(((day.at||{})[p.id])?'<small>'+esc(fmtT(day.at[p.id]))+'</small>':''):'<span class="muted">Not counted</span>';
+    h+='<tr><td class="pname"><label for="q-'+esc(p.id)+'" style="font-size:14px;color:var(--ink)">'+esc(p.name)+'</label>'+(p.unit?'<small>'+esc(p.unit)+'</small>':'')+'</td>'+
+      '<td class="num">'+(r.prev?num(r.prev.qty)+'<small style="font-family:var(--font)">'+esc(fmtD(r.prev.date))+'</small>':'<span class="muted">–</span>')+'</td>'+
+      '<td class="num"><input class="'+r.cls+'" id="q-'+esc(p.id)+'" data-pid="'+esc(p.id)+'" type="text" inputmode="decimal" autocomplete="off" placeholder="–" value="'+esc(r.val)+'"></td>'+
+      '<td class="num">'+ch+'</td><td>'+by+'</td></tr>';
+  });
+  h+='</tbody></table></div><div class="savebar"><div>'+
+    (S.err?'<span class="err">'+esc(S.err)+'</span>':bad?'<span class="err">'+bad+' value'+(bad>1?'s':'')+' must be a number</span>':dirty?'<strong>'+dirty+'</strong> unsaved count'+(dirty>1?'s':''):'<span class="muted">All changes saved</span>')+
+    '</div><div style="display:flex;gap:8px"><button class="btn" data-action="discard"'+((dirty||bad)&&!S.saving?'':' disabled')+'>Discard</button><button class="btn primary" data-action="save"'+(dirty&&!bad&&!S.saving?'':' disabled')+'>'+(S.saving?'Saving…':'Save '+(dirty||'')+' count'+(dirty===1?'':'s'))+'</button></div></div></section></div>';
+  return h;
+}
+
+function viewProducts(){
+  var P=active(),A=archived(),f=S.f,h='';
+  if(!S.isAdmin)h+='<div class="note">Only an administrator can change the product list. You can view it here.</div>';
+  if(S.isAdmin){
+    h+='<section class="panel"><div class="panel-h"><h2>Add a product</h2></div><div class="panel-b"><form id="form-add" class="addgrid">'+
+      '<label class="full">Product name<input id="f-name" data-bind="name" value="'+esc(f.name||'')+'" required autocomplete="off"></label>'+
+      '<label>Unit<input id="f-unit" data-bind="unit" value="'+esc(f.unit||'')+'" placeholder="pcs, kg, m" autocomplete="off"></label>'+
+      '<label>Minimum level<input id="f-min" data-bind="min" inputmode="decimal" value="'+esc(f.min||'')+'" placeholder="0" autocomplete="off"></label>'+
+      '<button class="btn primary" type="submit"'+(S.busy?' disabled':'')+'>Add product</button></form>'+
+      '<details style="margin-top:14px"><summary>Paste a list of products</summary><div class="panel-b"><p class="muted" style="margin-bottom:8px">One product per line: name, unit, minimum level. Unit and minimum are optional. You can paste rows copied from Excel.</p>'+
+      '<textarea id="f-bulk" data-bind="bulk" rows="6" placeholder="Steel pipe 50mm, m, 200&#10;Radiator 600x1000, pcs, 10">'+esc(f.bulk||'')+'</textarea>'+
+      '<div style="margin-top:10px"><button class="btn primary" data-action="bulk"'+(S.busy?' disabled':'')+'>'+(S.busy?'Adding…':'Add all')+'</button></div></div></details></div></section>';
+  }
+  h+='<section class="panel"><div class="panel-h"><h2>Warehouse products</h2><span class="muted">'+P.length+' active</span></div><div class="tw"><table style="min-width:520px"><thead><tr><th>Product</th><th>Unit</th><th class="num">Minimum</th><th></th></tr></thead><tbody>';
+  if(!P.length)h+='<tr><td colspan="4" class="muted" style="text-align:center;padding:24px">No products yet.</td></tr>';
+  P.forEach(function(p){
+    if(S.editing===p.id){
+      h+='<tr><td colspan="3"><div class="rowedit"><label>Name<input id="e-name" data-bind="e_name" value="'+esc(f.e_name||'')+'"></label><label>Unit<input id="e-unit" data-bind="e_unit" value="'+esc(f.e_unit||'')+'"></label><label>Minimum<input id="e-min" data-bind="e_min" inputmode="decimal" value="'+esc(f.e_min||'')+'"></label></div></td>'+
+        '<td style="white-space:nowrap;text-align:right"><button class="btn sm primary" data-action="saveedit">Save</button> <button class="btn sm" data-action="canceledit">Cancel</button></td></tr>';
+    }else{
+      h+='<tr><td class="pname">'+esc(p.name)+'</td><td>'+esc(p.unit||'')+'</td><td class="num">'+(Number(p.min)>0?num(Number(p.min)):'<span class="muted">–</span>')+'</td>'+
+        '<td style="white-space:nowrap;text-align:right">'+(S.isAdmin?'<button class="btn sm" data-action="edit" data-pid="'+esc(p.id)+'">Edit</button> <button class="btn sm danger" data-action="archive" data-pid="'+esc(p.id)+'">'+(S.confirm===p.id?'Confirm archive':'Archive')+'</button>':'')+'</td></tr>';
+    }
+  });
+  h+='</tbody></table></div></section>';
+  if(A.length){
+    h+='<section class="panel"><div class="panel-h"><h2>Archived</h2><button class="btn sm" data-action="toggle-archived">'+(S.showArchived?'Hide':'Show '+A.length)+'</button></div>';
+    if(S.showArchived){h+='<div class="tw"><table><tbody>'+A.map(function(p){return '<tr><td class="pname">'+esc(p.name)+'</td><td class="muted">Past counts are kept</td><td style="text-align:right">'+(S.isAdmin?'<button class="btn sm" data-action="restore" data-pid="'+esc(p.id)+'">Restore</button>':'')+'</td></tr>'}).join('')+'</tbody></table></div>'}
+    h+='</section>';
+  }
+  return h;
+}
+
+function viewLogin(){
+  return '<div class="loginwrap"><form id="form-login" class="panel login"><h1>Warehouse Stock Board</h1>'+
+    '<p class="muted">Sign in with the email and password your administrator gave you.</p>'+
+    '<label>Email<input id="l-email" type="email" data-bind="email" autocomplete="username" required value="'+esc(S.f.email||'')+'"></label>'+
+    '<label>Password<input id="l-pass" type="password" data-bind="password" autocomplete="current-password" required value="'+esc(S.f.password||'')+'"></label>'+
+    (S.loginErr?'<div class="err" role="alert">'+esc(S.loginErr)+'</div>':'')+
+    '<button class="btn primary" type="submit"'+(S.authBusy?' disabled':'')+'>'+(S.authBusy?'Signing in…':'Sign in')+'</button></form></div>';
+}
+
+function viewSetup(){
+  return '<div class="loginwrap"><div class="panel login"><h1>Almost ready</h1><p class="muted">This board is not connected to a database yet. Open the file <code>config.js</code>, paste your Supabase project URL and anon key, save it, and reload this page. The setup guide (README) has the steps.</p></div></div>';
+}
+
+function shell(body){
+  var live=S.ready?(S.live?'<span class="live on">Live</span>':'<span class="live off">Reconnecting</span>'):'';
+  var tabs=[['dash','Dashboard'],['entry','Daily count'],['products','Products']].map(function(t){return '<button class="tab" data-action="tab" data-v="'+t[0]+'"'+(S.tab===t[0]?' aria-current="page"':'')+'>'+t[1]+'</button>'}).join('');
+  var who=S.me?esc(S.me.full_name||'You')+(S.isAdmin?' (admin)':''):'';
+  return '<header class="top"><div class="wrap"><div class="brand"><h1>Warehouse Stock Board</h1><div class="meta"><span>'+esc(pd(S.today).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'}))+'</span>'+live+
+    (who?'<span>'+who+'</span>':'')+'<button class="btn sm" data-action="signout">Sign out</button></div></div><nav class="tabs" aria-label="Sections">'+tabs+'</nav></div></header>'+
+    '<main class="wrap">'+body+'</main>';
+}
+
+function render(){
+  S.today=ymd(new Date());
+  if(!S.date)S.date=S.today;
+  if(!S.month){var n=pd(S.date);S.month={y:n.getFullYear(),m:n.getMonth()}}
+  var a=document.activeElement,fid=a&&a.id&&$app.contains(a)?a.id:null,ss=null,se=null,sy=window.scrollY;
+  try{if(fid){ss=a.selectionStart;se=a.selectionEnd}}catch(e){}
+  var html;
+  if(!configured())html=viewSetup();
+  else if(!S.authChecked)html='<div class="loginwrap"><p class="muted">Loading…</p></div>';
+  else if(!S.uid)html=viewLogin();
+  else if(S.loadErr)html=shell('<div class="panel empty"><h2>Could not load the stock</h2><p>'+esc(S.loadErr)+'</p><button class="btn primary" data-action="retry">Try again</button></div>');
+  else if(!S.ready)html=shell('<div class="panel empty"><p>Loading the stock list…</p></div>');
+  else html=shell(S.tab==='entry'?viewEntry():S.tab==='products'?viewProducts():viewDash());
+  $app.innerHTML=html+(S.msg?'<div class="toast" role="status">'+esc(S.msg)+'</div>':'');
+  if(fid){var el=document.getElementById(fid);if(el){el.focus({preventScroll:true});try{if(ss!=null)el.setSelectionRange(ss,se)}catch(e){}}}
+  window.scrollTo(0,sy);
+}
+
+/* ---------- actions ---------- */
+async function saveDay(){
+  var date=S.date,d=S.drafts[date]||{},day=(S.counts[date]||{}).qty||{},rows=[];
+  active().forEach(function(p){
+    if(d[p.id]===undefined)return;
+    var v=parseQty(d[p.id]);
+    if(v===null||Number.isNaN(v)||v===day[p.id])return;
+    rows.push({product_id:p.id,count_date:date,qty:v});
+  });
+  if(!rows.length||S.saving)return;
+  S.saving=true;S.err='';render();
+  try{
+    var r=await sb.from('stock_counts').upsert(rows,{onConflict:'product_id,count_date'}).select('product_id,count_date,qty,entered_by,updated_at');
+    if(r.error)throw r.error;
+    r.data.forEach(applyRow);buildSeries();
+    rows.forEach(function(x){if(S.drafts[date])delete S.drafts[date][x.product_id]});
+    S.saving=false;toast('Saved '+rows.length+' count'+(rows.length===1?'':'s'));
+  }catch(e){S.saving=false;S.err=errText(e);render()}
+}
+function exists(name){var n=name.trim().toLowerCase();return S.products.some(function(p){return String(p.name).trim().toLowerCase()===n})}
+function csvCell(v){v=String(v==null?'':v);return /[",\n;]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
+function downloadCsv(){
+  var rows=[['Product','Unit','On hand','Last counted','Minimum','Status']];
+  active().map(info).forEach(function(r){rows.push([r.p.name,r.p.unit,r.last?r.last.qty:'',r.last?r.last.date:'',r.min||'',r.status==='none'?'No count yet':r.status.toUpperCase()])});
+  var text='﻿'+rows.map(function(r){return r.map(csvCell).join(',')}).join('\r\n');
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'}));
+  a.download='stock-'+S.today+'.csv';document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},500);
+}
+async function run(promise,okMsg,after){
+  try{var r=await promise;if(r&&r.error)throw r.error;if(after)await after();if(okMsg)toast(okMsg);else render()}
+  catch(e){toast(errText(e))}
+}
+function act(a,t){
+  if(a!=='archive'&&S.confirm){S.confirm=null}
+  switch(a){
+    case 'tab':S.tab=t.dataset.v;S.err='';render();window.scrollTo(0,0);break;
+    case 'filter':S.filter=t.dataset.v;render();break;
+    case 'select':S.sel=t.dataset.pid;render();break;
+    case 'date':S.date=t.dataset.v;S.err='';render();break;
+    case 'mprev':S.month=S.month.m===0?{y:S.month.y-1,m:11}:{y:S.month.y,m:S.month.m-1};render();ensureMonth();break;
+    case 'mnext':S.month=S.month.m===11?{y:S.month.y+1,m:0}:{y:S.month.y,m:S.month.m+1};render();ensureMonth();break;
+    case 'missing':S.onlyMissing=t.checked;render();break;
+    case 'save':saveDay();break;
+    case 'discard':delete S.drafts[S.date];S.err='';render();break;
+    case 'csv':downloadCsv();break;
+    case 'signout':sb.auth.signOut();break;
+    case 'retry':S.loadErr='';S.uid=null;sb.auth.getSession().then(function(r){if(r.data.session)onSession(r.data.session.user)});break;
+    case 'edit':{var p=S.products.filter(function(x){return x.id===t.dataset.pid})[0];if(p){S.editing=p.id;S.f.e_name=p.name;S.f.e_unit=p.unit||'';S.f.e_min=Number(p.min)>0?String(p.min):''}render();break}
+    case 'canceledit':S.editing=null;render();break;
+    case 'saveedit':{
+      var name=(S.f.e_name||'').trim(),mn=parseQty(S.f.e_min||'');
+      if(!name||Number.isNaN(mn)){toast('Enter a name and a numeric minimum');break}
+      var id=S.editing;
+      run(sb.from('products').update({name:name,unit:(S.f.e_unit||'').trim(),min_level:mn||0}).eq('id',id),'Product updated',function(){S.editing=null;return loadProducts()});break}
+    case 'archive':{
+      var pid=t.dataset.pid;
+      if(S.confirm!==pid){S.confirm=pid;render();break}
+      S.confirm=null;run(sb.from('products').update({active:false}).eq('id',pid),'Product archived',loadProducts);break}
+    case 'restore':run(sb.from('products').update({active:true}).eq('id',t.dataset.pid),'Product restored',loadProducts);break;
+    case 'toggle-archived':S.showArchived=!S.showArchived;render();break;
+    case 'bulk':{
+      var lines=(S.f.bulk||'').split(/\r?\n/).map(function(l){return l.trim()}).filter(Boolean),items=[],seen={};
+      lines.forEach(function(l){var c=l.split(/\t|;|,/).map(function(x){return x.trim()}),nm=c[0];if(!nm||exists(nm)||seen[nm.toLowerCase()])return;seen[nm.toLowerCase()]=1;var m=parseQty(c[2]||'');items.push({name:nm,unit:c[1]||'',min_level:Number.isNaN(m)?0:(m||0)})});
+      if(!items.length){toast('No new products found in the list');break}
+      S.busy=true;render();
+      sb.from('products').insert(items).then(function(r){
+        S.busy=false;
+        if(r.error){toast(errText(r.error));return}
+        S.f.bulk='';return loadProducts().then(function(){toast('Added '+items.length+' product'+(items.length===1?'':'s'))});
+      });
+      break}
+  }
+}
+
+/* ---------- events ---------- */
+$app.addEventListener('click',function(e){
+  var t=e.target.closest('[data-action]');if(!t||t.tagName==='INPUT')return;
+  act(t.dataset.action,t);
+});
+$app.addEventListener('change',function(e){var t=e.target;if(t.id==='c-missing')act('missing',t)});
+$app.addEventListener('input',function(e){
+  var t=e.target;
+  if(t.classList&&t.classList.contains('qty')){(S.drafts[S.date]=S.drafts[S.date]||{})[t.dataset.pid]=t.value;S.err='';render();return}
+  if(t.dataset&&t.dataset.bind){S.f[t.dataset.bind]=t.value;if(t.dataset.bind==='search')render()}
+});
+$app.addEventListener('keydown',function(e){
+  var t=e.target;
+  if(e.key==='Enter'&&t.classList&&t.classList.contains('qty')){
+    e.preventDefault();var all=[].slice.call($app.querySelectorAll('.qty')),i=all.indexOf(t);
+    if(all[i+1])all[i+1].focus();
+  }
+  if((e.key==='Enter'||e.key===' ')&&t.tagName==='TR'&&t.dataset.action){e.preventDefault();act(t.dataset.action,t)}
+});
+$app.addEventListener('submit',function(e){
+  e.preventDefault();
+  if(e.target.id==='form-login'){
+    if(S.authBusy||!sb)return;
+    S.authBusy=true;S.loginErr='';render();
+    sb.auth.signInWithPassword({email:(S.f.email||'').trim(),password:S.f.password||''}).then(function(r){
+      S.authBusy=false;
+      if(r.error){S.loginErr=/invalid login/i.test(r.error.message)?'Wrong email or password.':errText(r.error);render();return}
+      S.f.password='';onSession(r.data.user);
+    });
+    return;
+  }
+  if(e.target.id!=='form-add'||S.busy)return;
+  var name=(S.f.name||'').trim(),mn=parseQty(S.f.min||'');
+  if(!name){toast('Enter a product name');return}
+  if(Number.isNaN(mn)){toast('Minimum level must be a number');return}
+  if(exists(name)){toast('A product with this name already exists');return}
+  S.busy=true;render();
+  sb.from('products').insert({name:name,unit:(S.f.unit||'').trim(),min_level:mn||0}).then(function(r){
+    S.busy=false;
+    if(r.error){toast(errText(r.error));return}
+    S.f.name='';S.f.min='';
+    return loadProducts().then(function(){toast('Product added');var n=document.getElementById('f-name');if(n)n.focus()});
+  });
+});
+document.addEventListener('visibilitychange',function(){if(!document.hidden)refreshRecent()});
+
+/* ---------- start ---------- */
+function start(){
+  render();
+  if(!configured()||!window.supabase||!window.supabase.createClient){
+    if(configured()){S.authChecked=true;S.loginErr='Could not load the Supabase library. Check the internet connection.';}
+    return render();
+  }
+  sb=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY);
+  sb.auth.onAuthStateChange(function(ev,session){
+    if(ev==='SIGNED_OUT'){setTimeout(function(){teardown();render()},0)}
+    else if(session&&session.user&&session.user.id!==S.uid&&S.authChecked){setTimeout(function(){onSession(session.user)},0)}
+  });
+  sb.auth.getSession().then(function(r){
+    S.authChecked=true;
+    if(r.data&&r.data.session)onSession(r.data.session.user);else render();
+  }).catch(function(){S.authChecked=true;render()});
+}
+start();
+})();
+</script>
+</body>
+</html>
